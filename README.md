@@ -1,200 +1,75 @@
-# Basic Django-RQ Example
+# Advanced Django-RQ Example
 
-You could git clone this repository to get it working but I recommend following these manual steps so you understand what's required to get a basic Django-RQ example up and running.
+This builds on the previous basic Django-RQ example by adding a long-running task that is able to report its progress. In order to accurately report progress, you need to know how many things you need to do, and how many things you have completed. For example, if processing a CSV file with 1000 rows then you'll know which row you're currently on as well as how many rows in total. With this information you can create a percentage which becomes the progress. In this example, I added a simple sleep counter to the contact_form so that the task takes at least 60 seconds.
 
-- Before you start, you'll need a Redis server. If you don't have one the easiest way is through Docker with the following command:
-
-```bash
-docker run --name my-redis-server -d -p 127.0.0.1:6379:6379 redis
-```
-
-- Create a virtual environment using the method of your choice, I like to use the following command:
-
-```bash
-python3.8 -m venv .venv && source .venv/bin/activate && pip install --upgrade pip wheel setuptools > /dev/null
-```
-
-- Create the requirements.txt file to install the packages required:
-
-```
-django
-redis
-django-rq
-```
-
-- Activate your virtual environment and install the requirements in the `requirements.txt` file:
-
-```bash
-pip install -r requirements.txt
-```
-
-- Create your Django project:
-
-```bash
-django-admin startproject djangorq_project .
-```
-
-- Open the `settings.py` file and add Django Q to the list of installed apps to complete installation.
-
-```python
-INSTALLED_APPS = [
-    ...
-    "django_rq",
-]
-```
-
-- Open the project `urls.py` file and add the Django-RQ URLs to complete installation.
-
-```python
-urlpatterns = [
-    ...
-    path("django-rq/", include("django_rq.urls")),
-]
-```
-
-- Add the Django-RQ configuration in the `settings.py` file:
-
-```python
-# Django-RQ Configuration
-RQ_QUEUES = {
-    "default": {"HOST": "localhost", "PORT": 6379, "DB": 0, "DEFAULT_TIMEOUT": 360,},
-}
-```
-
-- That's the base project configuration complete, run the database migrations and create a superuser:
-
-```bash
-python manage.py migrate
-python manage.py createsuperuser
-```
-
-- Add a new app, we'll make a basic contact form app that stores messages in our database and sends an email to the site owner:
-
-```bash
-django-admin startapp contact_form
-```
-
-- Add some email configuration to the `settings.py` file. I use Amazon SES but substitute with our own SMTP settings.
-
-```python
-# Email
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = ""  # add your own settings here
-EMAIL_PORT = ""  # add your own settings here
-EMAIL_HOST_USER = ""  # add your own settings here
-EMAIL_HOST_PASSWORD = ""  # add your own settings here
-EMAIL_USE_TLS = True  # add your own settings here
-DEFAULT_FROM_EMAIL = "you@example.com"  # your email address
-```
-
-- While you're in the settings, add your new app to the `INSTALLED_APPS` section:
-
-```python
-INSTALLED_APPS = [
-    ...
-    "contact_form.apps.ContactFormConfig",
-]
-```
-
-- Create a model to store the messages sent from the website in `contact_form > models.py`
-
-```python
-from django.db import models
-
-
-class ContactForm(models.Model):
-    email = models.EmailField()
-    name = models.CharField(max_length=64)
-    subject = models.CharField(max_length=64)
-    message = models.TextField()
-    created_on = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "contactform"
-        verbose_name = "contact form message"
-        verbose_name_plural = "contact form messages"
-
-    def __str__(self):
-        return self.email
-```
-
-- Expose the model in the Admin site with `contact_form > admin.py`
-
-```python
-from django.contrib import admin
-
-from .models import ContactForm
-
-
-class ContactFormAdmin(admin.ModelAdmin):
-    list_display = ("email", "name", "subject", "created_on")
-
-
-admin.site.register(ContactForm, ContactFormAdmin)
-```
-
-- Create a contact form in `contact_form > forms.py` (you'll need to create this file):
-
-```python
-from django.forms import ModelForm
-
-from .models import ContactForm
-
-
-class ContactFormModelForm(ModelForm):
-    class Meta:
-        model = ContactForm
-        fields = ["name", "email", "subject", "message"]
-```
-
-- Create the Django-RQ task to send an email in `contact_form > tasks.py` (you'll need to create this file):
+- First we edit the `contact_form > tasks.py` file by adding the sleep function which reports `progress` to the RQ job by using the `meta` field:
 
 ```python
 from django.core.mail import send_mail, BadHeaderError
-from djangoq_project.settings import DEFAULT_FROM_EMAIL
+from djangorq_project.settings import DEFAULT_FROM_EMAIL
+from django_rq import job
+from rq import get_current_job
+
 import logging
+from time import sleep
 
 logger = logging.getLogger(__name__)
 
 
-def send_email_task(self, to, subject, message):
+@job
+def send_email_task(to, subject, message):
     logger.info(f"from={DEFAULT_FROM_EMAIL}, {to=}, {subject=}, {message=}")
+
+    job = get_current_job()
+
+    secs = 30
+    for sec in range(secs):
+        progress = int(sec / secs * 100)
+        job.meta["progress"] = progress
+        job.save_meta()
+        logger.debug(f"{job.meta['progress']=}")
+        sleep(1)
+
     try:
         logger.info("About to send_mail")
         send_mail(subject, message, DEFAULT_FROM_EMAIL, [DEFAULT_FROM_EMAIL])
+        job.meta["progress"] = 100
+        job.save_meta()
     except BadHeaderError:
         logger.info("BadHeaderError")
     except Exception as e:
         logger.error(e)
 ```
 
-- Create a basic template to use: `contact_form > templates > contact_form > contact_form.html` (you'll need to create these folders and file):
-
-```django
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>Contact Form</title>
-    </head>
-    <body>
-        <h2>Contact Form</h2>
-        <form method="post" action="">
-            {% csrf_token %}
-            {{ form.as_p }}
-            <input type="submit" value="Send Message">
-        </form>
-    </body>
-</html>
-```
-
-- Create a view in `contact_form > views.py`
+- To enable the logging, we need to add a basic logging configuration in the project `settings.py` file:
 
 ```python
+...
+# Logging
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler",},},
+    "root": {"handlers": ["console"], "level": "DEBUG",},
+}
+```
+
+- Then we create a new view in `contact_form > views.py` that can be called to return the status and progress of a job as a JSON response. We also add in some logging so we can see what's happening in the console. The `ContactFormView` class gets some tweaks so that the `send_email` function returns the job object just created. This used to get the job ID which is passed to a new template that uses JavaScript to update the page based on the progress:
+
+```python
+from django.http import JsonResponse
+from django.views import View
 from django.views.generic import FormView
+from django.shortcuts import render
+
+import django_rq
+
+import logging
 
 from .forms import ContactFormModelForm
 from .tasks import send_email_task
+
+logger = logging.getLogger(__name__)
 
 
 class ContactFormView(FormView):
@@ -204,9 +79,10 @@ class ContactFormView(FormView):
 
     def form_valid(self, form):
         form.save()
-        self.send_email(form.cleaned_data)
+        job = self.send_email(form.cleaned_data)
+        logger.debug(f"Job id: {job.id}")
 
-        return super().form_valid(form)
+        return render(self.request, "contact_form/progress.html", {"job_id": job.id},)
 
     def send_email(self, valid_data):
         email = valid_data["email"]
@@ -218,57 +94,92 @@ class ContactFormView(FormView):
             f"Subject: {valid_data['subject']}\n"
             f"{valid_data['message']}\n"
         )
-        send_email_task.delay(email, subject, message,)
+        return send_email_task.delay(email, subject, message,)
+
+
+class JobStatusView(View):
+    def get(self, request, job_id):
+
+        job = django_rq.get_queue().fetch_job(job_id)
+
+        if job:
+            response = {
+                "status": job.get_status(),
+                "progress": job.meta.get("progress", ""),
+            }
+            logger.debug(f"{job=}")
+            logger.debug(f"{response=}")
+        else:
+            response = {"status": "invalid", "progress": ""}
+
+        return JsonResponse(response)
 ```
 
-- Create a URLs configuration in `contact_form > urls.py` (you'll need to create this file):
+- Create a new template to show the progress in `contact_form > templates > contact_form > progress.html`. The example below is a basic use of using JavaScript (JQuery) to retrieve the JSON response from the new view we have just created which is updated every second. You can extend this to show a pretty progress bar that changes its CSS width property with the progress reported.
+
+```django
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Progress</title>
+    </head>
+    <body>
+        <div id="app">
+            <h2>Progress</h2>
+            <div id="status"></div>
+            <div id="progress"></div>
+        </div>
+        <script src="https://code.jquery.com/jquery-3.5.0.min.js" integrity="sha256-xNzN2a4ltkB44Mc/Jz3pT4iU1cmeR0FkXs4pru/JxaQ=" crossorigin="anonymous"></script>
+        <script>
+            $(document).ready(function () {
+                function update_progress() {
+                    status_url = "{% url 'contact_form:job_status' job_id %}";
+
+                    status_div = "#status";
+                    progress_div = "#progress";
+
+                    // send GET request to status URL
+                    $.getJSON(status_url, function (data) {
+                        // update UI
+                        status = "Job status: " + data["status"];
+                        if (data["progress"] == null) {
+                            progress = "Progress: 0%";
+                        } else {
+                            progress = "Progress: " + data["progress"] + "%";
+                        }
+
+                        $(status_div).html(status);
+                        $(progress_div).html(progress);
+
+                        // Checks if the script is finished
+                        if (data["status"] == "finished") {
+                            $(status_div).html(status);
+                            $(progress_div).html("Progress: 100%");
+                        } else {
+                            setTimeout(function () {
+                                update_progress();
+                            }, 1000);
+                        }
+                    });
+                }
+                update_progress();
+            });
+        </script>
+    </body>
+</html>
+```
+
+- The last thing to do is to add a URL pattern in `contact_form > urls.py` for the new view we have created:
 
 ```python
 from django.urls import path
 
-from .views import ContactFormView
+from .views import ContactFormView, JobStatusView
 
 app_name = "contact_form"
 urlpatterns = [
     path("", ContactFormView.as_view(), name="contact_form"),
+    path("taskstatus/<str:job_id>", JobStatusView.as_view(), name="job_status"),
 ]
 ```
-
-- Update the project URLs to reference these new URLs in `djangorq_project > urls.py`
-
-```python
-from django.contrib import admin
-from django.urls import path, include
-
-urlpatterns = [
-    path('admin/', admin.site.urls),
-    path("", include("contact_form.urls")),
-]
-```
-
-- Create and apply the database migrations for the new model
-
-```bash
-python manage.py makemigrations
-python manage.py migrate
-```
-
-- Now you need to launch the Django test server:
-
-```bash
-python manage.py runserver
-```
-
-- Then in a second terminal window, navigate to your project directory, activate the virtual environment again, and then launch the Django-RQ rqworker process - it should print out some debug information and then a `Lisenting on default...` message to indicate it has connected to Redis successfully and is waiting for tasks:
-
-```bash
-python manage.py rqworker default
-```
-
-- Browse to http://127.0.0.1 and you should see a contact form. Try sending a message to see if it works.
-
-- Switch back to your terminal windows with the Django-RQ process and you'll see some updates. It can take several seconds to send the email, but that was all done by the rqworker process and didn't affect the page loading time after submitting the form.
-
-- After sending a message, log in to the admin site (http://127.0.0.1/admin) and take a look at the contact form model we created.
-
-Hopefully that worked for you and gives you something to build upon.
