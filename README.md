@@ -1,6 +1,6 @@
 # Advanced Django-RQ Example
 
-This builds on the previous basic Django-RQ example by adding a long-running task that is able to report its progress. In order to accurately report progress, you need to know how many things you need to do, and how many things you have completed. For example, if processing a CSV file with 1000 rows then you'll know which row you're currently on as well as how many rows in total. With this information you can create a percentage which becomes the progress. In this example, I added a simple sleep counter to the contact_form so that the task takes at least 60 seconds.
+This builds on the previous basic [Django-RQ example](https://github.com/stuartmaxwell/django-django_rq-example) by adding a long-running task that is able to report its progress. In order to accurately report progress, you need to know how many things you need to do, and how many things you have completed. For example, if processing a CSV file with 1000 rows then you'll know which row you're currently on as well as how many rows in total. With this information you can create a percentage which becomes the progress. In this example, I added a simple sleep counter to the contact_form so that the task takes at least 60 seconds.
 
 - First we edit the `contact_form > tasks.py` file by adding the sleep function which reports `progress` to the RQ job by using the `meta` field:
 
