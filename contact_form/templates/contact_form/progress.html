@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
     <head>
@@ -10,41 +11,9 @@
             <div id="status"></div>
             <div id="progress"></div>
         </div>
-        <script src="https://code.jquery.com/jquery-3.5.0.min.js" integrity="sha256-xNzN2a4ltkB44Mc/Jz3pT4iU1cmeR0FkXs4pru/JxaQ=" crossorigin="anonymous"></script>
         <script>
-            $(document).ready(function () {
-                function update_progress() {
-                    status_url = "{% url 'contact_form:job_status' job_id %}";
-
-                    status_div = "#status";
-                    progress_div = "#progress";
-
-                    // send GET request to status URL
-                    $.getJSON(status_url, function (data) {
-                        // update UI
-                        status = "Job status: " + data["status"];
-                        if (data["progress"] == null) {
-                            progress = "Progress: 0%";
-                        } else {
-                            progress = "Progress: " + data["progress"] + "%";
-                        }
-
-                        $(status_div).html(status);
-                        $(progress_div).html(progress);
-
-                        // Checks if the script is finished
-                        if (data["status"] == "finished") {
-                            $(status_div).html(status);
-                            $(progress_div).html("Progress: 100%");
-                        } else {
-                            setTimeout(function () {
-                                update_progress();
-                            }, 1000);
-                        }
-                    });
-                }
-                update_progress();
-            });
+            var status_url = "{% url 'contact_form:job_status' job_id %}";
         </script>
+        <script src="{% static 'js/progress.js' %}"></script>
     </body>
 </html>
