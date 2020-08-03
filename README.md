@@ -115,7 +115,7 @@ class JobStatusView(View):
         return JsonResponse(response)
 ```
 
-- Create a new template to show the progress in `contact_form > templates > contact_form > progress.html`. The example below is a basic use of using JavaScript (JQuery) to retrieve the JSON response from the new view we have just created which is updated every second. You can extend this to show a pretty progress bar that changes its CSS width property with the progress reported.
+- Create a new template to show the progress in `contact_form > templates > contact_form > progress.html`. The example below is a basic use of using vanilla JavaScript to retrieve the JSON response from the new view we have just created which is updated every second. You can extend this to show a pretty progress bar that changes its CSS width property with the progress reported.
 
 ```django
 <!doctype html>
@@ -130,44 +130,61 @@ class JobStatusView(View):
             <div id="status"></div>
             <div id="progress"></div>
         </div>
-        <script src="https://code.jquery.com/jquery-3.5.0.min.js" integrity="sha256-xNzN2a4ltkB44Mc/Jz3pT4iU1cmeR0FkXs4pru/JxaQ=" crossorigin="anonymous"></script>
         <script>
-            $(document).ready(function () {
-                function update_progress() {
-                    status_url = "{% url 'contact_form:job_status' job_id %}";
-
-                    status_div = "#status";
-                    progress_div = "#progress";
-
-                    // send GET request to status URL
-                    $.getJSON(status_url, function (data) {
-                        // update UI
-                        status = "Job status: " + data["status"];
-                        if (data["progress"] == null) {
-                            progress = "Progress: 0%";
-                        } else {
-                            progress = "Progress: " + data["progress"] + "%";
-                        }
-
-                        $(status_div).html(status);
-                        $(progress_div).html(progress);
-
-                        // Checks if the script is finished
-                        if (data["status"] == "finished") {
-                            $(status_div).html(status);
-                            $(progress_div).html("Progress: 100%");
-                        } else {
-                            setTimeout(function () {
-                                update_progress();
-                            }, 1000);
-                        }
-                    });
-                }
-                update_progress();
-            });
+            var status_url = "{% url 'contact_form:job_status' job_id %}";
         </script>
+        <script src="{% static 'js/progress.js' %}"></script>
     </body>
 </html>
+```
+
+And here's the `progress.js` file using vanilla JS:
+
+```javascript
+// VanillaJS!!
+function update_progress() {
+  var status_div = document.querySelector("#status");
+  var progress_div = document.querySelector("#progress");
+  fetch(status_url)
+    .then(function (response) {
+      // The API call was successful!
+      if (response.ok) {
+        return response.json();
+      }
+      // There was an error
+      return Promise.reject(response);
+    })
+    .then(function (data) {
+      // This is the JSON from our response
+      status = "Job status: " + data["status"];
+      if (data["progress"] == null) {
+        progress = "Progress: 0%";
+      } else {
+        progress = "Progress: " + data["progress"] + "%";
+      }
+
+      status_div.textContent = status;
+      progress_div.textContent = progress;
+
+      // Checks if the script is finished
+      if (data["status"] == "finished") {
+        status_div.textContent = status;
+        progress_div.textContent = "Progress: 100%";
+      } else if (data["status"] == "failed") {
+        status_div.textContent = status;
+        progress_div.textContent = "Progress: 100%";
+      } else {
+        setTimeout(function () {
+          update_progress();
+        }, 800);
+      }
+    })
+    .catch(function (err) {
+      // There was an error
+      console.warn("Something went wrong.", err);
+    });
+}
+update_progress();
 ```
 
 - The last thing to do is to add a URL pattern in `contact_form > urls.py` for the new view we have created:
